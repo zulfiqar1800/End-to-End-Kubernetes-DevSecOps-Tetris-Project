@@ -12,9 +12,7 @@ pipeline {
     stages {
 
         stage('Cleaning Workspace') {
-            steps {
-                cleanWs()
-            }
+            steps { cleanWs() }
         }
 
         stage('Checkout from Git') {
@@ -39,5 +37,79 @@ pipeline {
 
         stage('Quality Check') {
             steps {
-                script {
-                    waitForQualityGate abortPipeline: false
+                waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
+            }
+        }
+
+        stage('Installing Dependencies') {
+            steps {
+                dir('Tetris-V2') { sh 'npm install' }
+            }
+        }
+
+        stage('OWASP Dependency-Check Scan') {
+            steps {
+                dir('Tetris-V2') {
+                    dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                }
+            }
+        }
+
+        stage('Trivy File Scan') {
+            steps {
+                dir('Tetris-V2') { sh 'trivy fs . > trivyfs.txt' }
+            }
+        }
+
+        stage('Docker Image Build') {
+            steps {
+                dir('Tetris-V2') {
+                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                        sh 'docker system prune -f'
+                        sh 'docker build -t tetrisv2 .'
+                    }
+                }
+            }
+        }
+
+        stage('Docker Image Push') {
+            steps {
+                withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                    sh 'docker tag tetrisv2 rasheed1800/tetrisv2:${BUILD_NUMBER}'
+                    sh 'docker push rasheed1800/tetrisv2:${BUILD_NUMBER}'
+                }
+            }
+        }
+
+        stage('Trivy Image Scan') {
+            steps {
+                sh 'trivy image rasheed1800/tetrisv2:${BUILD_NUMBER} > trivyimage.txt'
+            }
+        }
+
+        stage('Update Deployment File') {
+            environment {
+                GIT_REPO_NAME = "End-to-End-Kubernetes-DevSecOps-Tetris-Project"
+                GIT_USER_NAME = "rasheed1800"
+            }
+            steps {
+                dir('Manifest-file') {
+                    withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                        sh '''
+                            git config user.email "rasheed1800@gmail.com"
+                            git config user.name "rasheed1800"
+
+                            imageTag=$(grep -oP '(?<=tetrisv2:)[^ ]+' deployment.yaml)
+                            sed -i "s/tetrisv2:${imageTag}/tetrisv2:${BUILD_NUMBER}/" deployment.yaml
+
+                            git add deployment.yaml
+                            git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                            git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:master
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
