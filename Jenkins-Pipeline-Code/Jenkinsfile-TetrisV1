@@ -12,9 +12,7 @@ pipeline {
     stages {
 
         stage('Cleaning Workspace') {
-            steps {
-                cleanWs()
-            }
+            steps { cleanWs() }
         }
 
         stage('Checkout from Git') {
@@ -39,17 +37,13 @@ pipeline {
 
         stage('Quality Check') {
             steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
-                }
+                waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
             }
         }
 
         stage('Installing Dependencies') {
             steps {
-                dir('Tetris-V1') {
-                    sh 'npm install'
-                }
+                dir('Tetris-V1') { sh 'npm install' }
             }
         }
 
@@ -64,20 +58,16 @@ pipeline {
 
         stage('Trivy File Scan') {
             steps {
-                dir('Tetris-V1') {
-                    sh 'trivy fs . > trivyfs.txt'
-                }
+                dir('Tetris-V1') { sh 'trivy fs . > trivyfs.txt' }
             }
         }
 
         stage('Docker Image Build') {
             steps {
-                script {
-                    dir('Tetris-V1') {
-                        withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                            sh 'docker system prune -f'
-                            sh 'docker build -t tetris:v1 .'
-                        }
+                dir('Tetris-V1') {
+                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                        sh 'docker system prune -f'
+                        sh 'docker build -t tetrisv1 .'
                     }
                 }
             }
@@ -85,18 +75,16 @@ pipeline {
 
         stage('Docker Image Push') {
             steps {
-                script {
-                    withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
-                        sh 'docker tag tetris:v1 avian19/tetrisv1:${BUILD_NUMBER}'
-                        sh 'docker push avian19/tetrisv1:${BUILD_NUMBER}'
-                    }
+                withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                    sh 'docker tag tetrisv1 rasheed1800/tetrisv1:${BUILD_NUMBER}'
+                    sh 'docker push rasheed1800/tetrisv1:${BUILD_NUMBER}'
                 }
             }
         }
 
         stage('Trivy Image Scan') {
             steps {
-                sh 'trivy image avian19/tetrisv1:${BUILD_NUMBER} > trivyimage.txt'
+                sh 'trivy image rasheed1800/tetrisv1:${BUILD_NUMBER} > trivyimage.txt'
             }
         }
 
@@ -112,12 +100,7 @@ pipeline {
                             git config user.email "rasheed1800@gmail.com"
                             git config user.name "rasheed1800"
 
-                            BUILD_NUMBER=${BUILD_NUMBER}
-                            echo $BUILD_NUMBER
-
                             imageTag=$(grep -oP '(?<=tetrisv1:)[^ ]+' deployment.yaml)
-                            echo $imageTag
-
                             sed -i "s/tetrisv1:${imageTag}/tetrisv1:${BUILD_NUMBER}/" deployment.yaml
 
                             git add deployment.yaml
